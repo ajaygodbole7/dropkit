@@ -1,178 +1,299 @@
 # Hypermedia and Performance
 
-> Zalando RESTful API Guidelines — hypermedia and performance reference.
-> Source: https://opensource.zalando.com/restful-api-guidelines/ (CC-BY-4.0, Zalando SE)
+> Derived from the [Zalando RESTful API Guidelines](https://opensource.zalando.com/restful-api-guidelines/) (CC-BY-4.0, Zalando SE).
 
-## REST Maturity Level
+These rules cover REST maturity, hypertext controls, and performance optimizations
+for bandwidth, caching, and responsiveness.
 
-### Level 2 Required [#162]
+---
 
-MUST use REST maturity level 2 — proper use of HTTP methods and status codes. All APIs must:
+## Hypermedia
 
-- Use correct HTTP verbs (GET for reads, POST for creates, etc.)
-- Return appropriate HTTP status codes
-- Use standard content types
+### [#162] MUST use REST maturity level 2
 
-### Level 3 Optional [#163]
+All APIs MUST implement at least **Richardson Maturity Model level 2**:
 
-MAY use REST maturity level 3 (HATEOAS) — hypermedia-driven navigation is allowed but not required.
+| Level | Requirement | Status |
+|---|---|---|
+| 0 | Single URI, single verb | Not acceptable |
+| 1 | Multiple URIs (resources) | Not sufficient |
+| **2** | **Proper HTTP verbs + status codes** | **Required** |
+| 3 | HATEOAS (hypermedia controls) | Optional ([#163]) |
 
-## Hypertext Controls [#164]
+Level 2 means:
+- Resources are identified by distinct URIs
+- HTTP methods (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`) carry correct semantics
+- HTTP status codes (2xx, 4xx, 5xx) convey outcome accurately
+- Standard headers (`Content-Type`, `Location`, `ETag`, etc.) are used correctly
 
-MUST use common hypertext controls. When providing links, use a consistent format:
+---
+
+### [#163] MAY use REST maturity level 3 — HATEOAS
+
+Hypermedia as the Engine of Application State is **optional**. APIs MAY provide
+navigational links in responses to improve discoverability, but consumers MUST NOT
+be forced to rely on them for basic operation.
+
+When HATEOAS is used, follow [#164] and [#165] for link format.
+
+---
+
+### [#164] MUST use common hypertext controls
+
+When providing hypermedia links, MUST use a consistent link object format:
 
 ```yaml
-_links:
+# Link object schema
+components:
+  schemas:
+    Link:
+      type: object
+      properties:
+        href:
+          type: string
+          format: uri
+          description: Target URI of the linked resource
+          example: 'https://api.example.com/orders/123'
+        rel:
+          type: string
+          description: Link relation type (IANA or custom)
+          example: 'self'
+        type:
+          type: string
+          description: Expected media type of the target resource
+          example: 'application/json'
+        title:
+          type: string
+          description: Human-readable link label
+      required:
+        - href
+```
+
+Standard link relations (`self`, `next`, `prev`, `first`, `last`) SHOULD follow
+[IANA link relation types](https://www.iana.org/assignments/link-relations/).
+
+---
+
+### [#165] SHOULD use simple hypertext controls for pagination and self-references
+
+For the most common hypermedia use cases — pagination and self-links — SHOULD use a
+simple, flat link structure:
+
+```yaml
+# Paginated collection response
+OrderList:
   type: object
   properties:
     self:
       type: string
       format: uri
-      description: Link to this resource
+      example: 'https://api.example.com/orders?cursor=abc&limit=10'
     next:
       type: string
       format: uri
-      description: Link to the next page
-    related_resource:
+      example: 'https://api.example.com/orders?cursor=def&limit=10'
+    prev:
       type: string
       format: uri
-      description: Link to a related resource
+      example: 'https://api.example.com/orders?cursor=xyz&limit=10'
+    items:
+      type: array
+      items:
+        $ref: '#/components/schemas/Order'
 ```
 
-## Simple Hypertext Controls [#165]
+This pattern avoids the complexity of full HAL or JSON:API link structures while
+still enabling client navigation.
 
-SHOULD use simple hypertext controls for pagination and self-references — at minimum, provide `self` links on resources and `next`/`prev` on paginated collections.
+---
 
-## Absolute URIs [#217]
+### [#217] MUST use full, absolute URI for resource identification
 
-MUST use full, absolute URI for resource identification — all links must be complete URIs including scheme and host:
+All resource URIs in responses MUST be **absolute** (fully qualified):
 
 ```
 # Correct
-"self": "https://api.example.com/orders/abc123"
+"href": "https://api.example.com/orders/123"
 
-# Wrong — relative reference
-"self": "/orders/abc123"
+# Wrong — relative URI
+"href": "/orders/123"
 ```
 
-## No Link Headers with JSON [#166]
+Absolute URIs prevent clients from having to construct URLs and reduce coupling to
+specific deployment configurations.
 
-MUST NOT use link headers with JSON entities — embed links in the JSON response body, not in HTTP `Link` headers.
+---
+
+### [#166] MUST NOT use link headers with JSON entities
+
+When the response body is JSON, hyperlinks MUST be embedded **inside the JSON
+payload**, not in HTTP `Link` headers:
+
+```
+# Wrong — link in header with JSON body
+Link: <https://api.example.com/orders?page=2>; rel="next"
+Content-Type: application/json
+{"items": [...]}
+
+# Correct — link in JSON body
+Content-Type: application/json
+{
+  "items": [...],
+  "next": "https://api.example.com/orders?cursor=abc"
+}
+```
+
+HTTP `Link` headers are appropriate for non-JSON media types (e.g., HTML, binary)
+but MUST NOT be mixed with JSON response bodies.
+
+---
 
 ## Performance
 
-### Reduce Bandwidth [#155]
+### [#155] SHOULD reduce bandwidth needs and improve responsiveness
 
-SHOULD reduce bandwidth needs and improve responsiveness:
+APIs SHOULD employ strategies to minimize data transfer and improve response times:
 
-- Support partial responses (`fields` parameter)
-- Support conditional requests (ETag/If-None-Match)
-- Use compression
+- Support field filtering / partial responses ([#157])
+- Enable compression ([#156])
+- Allow sub-resource embedding ([#158])
+- Use pagination for collections
+- Support conditional requests (`If-None-Match`, `If-Modified-Since`)
 
-### Gzip Compression [#156]
+---
 
-SHOULD use gzip compression — support `Accept-Encoding: gzip` and `Content-Encoding: gzip` for responses.
+### [#156] SHOULD use gzip compression
 
-### Partial Responses [#157]
-
-SHOULD support partial responses via filtering — allow clients to request specific fields:
+APIs SHOULD support **gzip** content encoding for response bodies:
 
 ```
-GET /orders/abc123?fields=id,status,total
+# Client request
+Accept-Encoding: gzip
+
+# Server response
+Content-Encoding: gzip
 ```
 
-Define a `fields` query parameter:
+Gzip typically reduces JSON payload size by 60-80%. Servers SHOULD respect the
+`Accept-Encoding` header and compress responses when the client supports it.
+
+---
+
+### [#157] SHOULD support partial responses via filtering
+
+APIs SHOULD allow clients to request only the fields they need using a `fields`
+query parameter:
+
+```
+GET /orders/123?fields=id,status,total_amount
+```
+
+This reduces payload size and can improve backend performance when expensive
+computed fields can be skipped.
+
+OpenAPI definition pattern:
 
 ```yaml
 parameters:
   - name: fields
     in: query
+    required: false
+    description: Comma-separated list of fields to include in the response
     schema:
       type: string
-    description: Comma-separated list of fields to include in the response
-    example: id,status,total
+    example: 'id,status,total_amount'
 ```
 
-### Sub-Resource Embedding [#158]
+---
 
-SHOULD allow optional embedding of sub-resources — let clients expand related resources inline to reduce round trips:
+### [#158] SHOULD allow optional embedding of sub-resources
+
+APIs SHOULD support an `embed` (or `expand`) query parameter that lets clients
+request related resources inline, avoiding additional round-trips:
 
 ```
-GET /orders/abc123?embed=items,customer
+# Without embedding — requires two requests
+GET /orders/123
+GET /orders/123/items
+
+# With embedding — single request
+GET /orders/123?embed=items
 ```
 
-### Caching [#227]
-
-MUST document cacheable GET, HEAD, and POST endpoints:
-
-- Annotate cacheable endpoints with `Cache-Control` header in the response
-- Define appropriate `max-age` or `no-cache` directives
-- Use `ETag` and `If-None-Match` for conditional requests [#182]
+OpenAPI definition pattern:
 
 ```yaml
-headers:
-  Cache-Control:
+parameters:
+  - name: embed
+    in: query
+    required: false
+    description: Comma-separated list of sub-resources to embed
     schema:
       type: string
-    example: "max-age=300, public"
-  ETag:
-    schema:
-      type: string
-    example: '"33a64df551425fcc55e4d42a148795d9f25f89d4"'
+    example: 'items,customer'
 ```
 
-## HTTP Headers
+Embedded sub-resources SHOULD appear as nested objects within the parent response.
+The un-embedded response SHOULD include a link ([#164]) to the sub-resource instead.
 
-### Standard Headers [#133]
+---
 
-MAY use standard headers as defined by IANA.
+### [#227] MUST document cacheable GET, HEAD, and POST endpoints
 
-### Header Naming [#132]
+For every `GET`, `HEAD`, or cacheable `POST` endpoint, the API specification MUST
+document caching behavior:
 
-SHOULD use kebab-case with uppercase separate words for HTTP headers: `Content-Type`, `Cache-Control`, `X-Flow-ID`.
+| Aspect | What to document |
+|---|---|
+| **Cache-Control** | Directives (`max-age`, `no-cache`, `no-store`, `private`, `public`) |
+| **TTL** | Expected freshness duration |
+| **Vary** | Which request headers affect the cached response (`Vary: Accept, Accept-Encoding`) |
+| **ETags** | Whether the endpoint supports `ETag` / `If-None-Match` conditional requests |
+| **Last-Modified** | Whether the endpoint supports `Last-Modified` / `If-Modified-Since` |
 
-### Content Headers [#178]
+OpenAPI example:
 
-MUST use `Content-*` headers correctly:
+```yaml
+paths:
+  /products/{product_id}:
+    get:
+      summary: Get product details
+      description: |
+        Cacheable. Responses include `ETag` and `Cache-Control: max-age=300`.
+        Use `If-None-Match` for conditional requests.
+      responses:
+        '200':
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: 'max-age=300, public'
+            ETag:
+              schema:
+                type: string
+              example: '"33a64df5"'
+        '304':
+          description: Not Modified — use cached version
+```
 
-- `Content-Type` MUST be set on requests with body and all responses with body
-- `Content-Encoding` for compression
-- `Content-Language` when content is localized
+**Key rule:** If an endpoint is cacheable, say so explicitly. If it is not cacheable
+(e.g., returns user-specific data), document `Cache-Control: no-store` or
+`Cache-Control: private`.
 
-### Location Header [#180]
+---
 
-SHOULD use `Location` header instead of `Content-Location` for pointing to created resources.
+## Quick-reference checklist
 
-### Content-Location [#179]
+```
+For every endpoint:
+  [ ] Correct HTTP method and status codes [#162]
+  [ ] All URIs in responses are absolute [#217]
+  [ ] Links embedded in JSON body, not Link headers [#166]
+  [ ] Cacheable endpoints document Cache-Control / ETag [#227]
 
-MAY use `Content-Location` header for pointing to the actual content location.
-
-### Prefer Header [#181]
-
-MAY consider supporting `Prefer` header for processing preferences:
-
-- `Prefer: return=minimal` — return only essential fields
-- `Prefer: return=representation` — return the full resource
-- `Prefer: respond-async` — request asynchronous processing
-
-### ETag Support [#182]
-
-MAY consider supporting ETag together with `If-Match`/`If-None-Match` headers for optimistic locking and conditional requests.
-
-### Idempotency-Key [#230]
-
-MAY consider supporting `Idempotency-Key` header for safe retries of non-idempotent operations (POST, PATCH).
-
-## Remote References [#234]
-
-MUST only use durable and immutable remote references — any `$ref` pointing to external resources must reference a specific, versioned, immutable URL.
-
-## API Operation
-
-### Publish Specification [#192]
-
-MUST publish OpenAPI specification for APIs — make the spec available to consumers.
-
-### Monitor Usage [#193]
-
-SHOULD monitor API usage — track metrics like request volume, latency, and error rates.
+For collections:
+  [ ] Pagination with self/next/prev links [#165]
+  [ ] Consider field filtering support [#157]
+  [ ] Consider sub-resource embedding [#158]
+  [ ] Support gzip compression [#156]
+```

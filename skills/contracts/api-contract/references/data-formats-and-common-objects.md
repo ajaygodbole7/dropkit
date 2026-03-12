@@ -1,147 +1,531 @@
-# Data Formats and Common Objects
+# Data Formats and Common Objects Reference
 
-> Zalando RESTful API Guidelines — data formats and reusable schemas reference.
-> Source: https://opensource.zalando.com/restful-api-guidelines/ (CC-BY-4.0, Zalando SE)
+> Derived from the [Zalando RESTful API Guidelines](https://opensource.zalando.com/restful-api-guidelines/).
+> License: CC-BY-4.0 — Copyright Zalando SE. This is a derivative work.
+
+This reference covers data format rules, JSON conventions, and common reusable
+objects for OpenAPI 3.1 contract generation.
+
+---
+
+## JSON as Interchange Format [#167]
+
+**MUST** use JSON (`application/json`) as the default data interchange format
+for request and response payloads. All APIs must support JSON; other formats
+are supplementary.
+
+```yaml
+paths:
+  /orders:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderCreate"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+```
+
+---
 
 ## Standard Data Formats [#238]
 
-MUST use standard data formats. Every `type` + `format` pair must use a recognized OpenAPI / JSON Schema format.
+**MUST** use OpenAPI-defined format values for standard data types:
+
+| Type      | Format      | Description                    | Example                        |
+|-----------|-------------|--------------------------------|--------------------------------|
+| `string`  | `date`      | ISO 8601 date                  | `2024-06-15`                   |
+| `string`  | `date-time` | ISO 8601 date-time             | `2024-06-15T14:30:00Z`         |
+| `string`  | `time`      | ISO 8601 time                  | `14:30:00`                     |
+| `string`  | `duration`  | ISO 8601 duration              | `P1DT12H`                      |
+| `string`  | `period`    | ISO 8601 interval              | `2024-01-01/2024-12-31`        |
+| `string`  | `uri`       | RFC 3986 URI                   | `https://example.com/orders/1` |
+| `string`  | `uri-reference` | Relative or absolute URI   | `/orders/1`                    |
+| `string`  | `url`       | RFC 3986 URL                   | `https://example.com`          |
+| `string`  | `email`     | RFC 5322 email address         | `user@example.com`             |
+| `string`  | `hostname`  | RFC 1123 hostname              | `api.example.com`              |
+| `string`  | `ipv4`      | RFC 2673 IPv4                  | `192.168.1.1`                  |
+| `string`  | `ipv6`      | RFC 4291 IPv6                  | `::1`                          |
+| `string`  | `uuid`      | RFC 4122 UUID                  | `550e8400-e29b-41d4-a716-...`  |
+| `string`  | `password`  | Sensitive value (hint to UIs)  | `••••••••`                     |
+| `string`  | `byte`      | Base64-encoded binary          | `dGVzdA==`                     |
+| `string`  | `binary`    | Raw binary (for file uploads)  | —                              |
+| `integer` | `int32`     | 32-bit signed integer          | `2147483647`                   |
+| `integer` | `int64`     | 64-bit signed integer          | `9223372036854775807`          |
+| `number`  | `float`     | 32-bit IEEE 754 float          | `3.14`                         |
+| `number`  | `double`    | 64-bit IEEE 754 double         | `3.141592653589793`            |
+| `number`  | `decimal`   | Arbitrary-precision decimal    | `29.99`                        |
+
+---
 
 ## Number and Integer Formats [#171]
 
-MUST define a `format` for every `number` and `integer` property:
+**MUST** define format for all number and integer types to ensure
+interoperability across languages and platforms:
 
-| Type | Format | Range / Precision |
-|------|--------|-------------------|
-| `integer` | `int32` | -2^31 to 2^31-1 |
-| `integer` | `int64` | -2^63 to 2^63-1 |
-| `number` | `float` | IEEE 754 single |
-| `number` | `double` | IEEE 754 double |
-| `number` | `decimal` | Arbitrary precision (use for money, rates) |
+```yaml
+# Correct — explicit format
+quantity:
+  type: integer
+  format: int32
+  minimum: 0
+total_amount:
+  type: number
+  format: decimal
+  description: Monetary amount — use decimal to avoid floating-point errors
+weight_kg:
+  type: number
+  format: double
 
-## Date and Time [#169][#255]
+# Wrong — missing format
+quantity:
+  type: integer     # What size? int32? int64?
+price:
+  type: number      # float? double? decimal?
+```
 
-MUST use ISO 8601 / RFC 3339 standard formats:
+**Guideline for choosing format:**
+- `int32` — Counts, quantities, small identifiers
+- `int64` — Large identifiers, timestamps in millis
+- `float` — Low-precision measurements (rarely used in APIs)
+- `double` — Scientific/engineering values
+- `decimal` — Monetary amounts, financial calculations (MUST for money)
 
-| Format | OpenAPI `format` | Example | When to use [#255] |
-|--------|------------------|---------|---------------------|
-| Date-time | `date-time` | `2024-03-11T14:30:00Z` | Events with time-of-day relevance |
-| Date | `date` | `2024-03-11` | Calendar dates, birthdays, deadlines |
+---
 
-SHOULD select the appropriate one — prefer `date` when time is irrelevant [#255].
+## Date and Time — ISO 8601 [#169]
 
-### Duration and Interval [#127]
+**MUST** use ISO 8601 / RFC 3339 formats for all date and time properties:
 
-SHOULD use standard formats for duration and interval:
+```yaml
+created_at:
+  type: string
+  format: date-time
+  description: Timestamp in UTC with timezone offset
+  example: "2024-06-15T14:30:00Z"
 
-- Duration: ISO 8601 duration string, e.g. `P3D`, `PT2H30M`
-- Interval: ISO 8601 interval, e.g. `2024-01-01/2024-03-31`
+due_date:
+  type: string
+  format: date
+  description: Calendar date without time component
+  example: "2024-07-01"
+```
 
-## Country, Language, Currency [#170]
+### Date vs. Date-Time [#255]
 
-MUST use standard formats:
+**SHOULD** choose the right format based on precision needs:
 
-| Property | Standard | Format | Example |
-|----------|----------|--------|---------|
-| Country | ISO 3166-1 alpha-2 | `iso-3166-alpha-2` | `DE`, `US` |
-| Language | ISO 639-1 | `iso-639-1` | `de`, `en` |
-| Currency | ISO 4217 | `iso-4217` | `EUR`, `USD` |
+- Use `date` for calendar dates where time is irrelevant (birth dates,
+  due dates, billing periods)
+- Use `date-time` for timestamps where time precision matters (creation time,
+  event times, deadlines)
+
+```yaml
+# Date — no time component needed
+birth_date:
+  type: string
+  format: date
+  example: "1990-05-20"
+
+# Date-time — time precision needed
+order_placed_at:
+  type: string
+  format: date-time
+  example: "2024-06-15T14:30:00Z"
+```
+
+---
+
+## Duration and Interval — ISO 8601 [#127]
+
+**SHOULD** use ISO 8601 formats for duration and interval properties:
+
+```yaml
+# Duration
+processing_time:
+  type: string
+  format: duration
+  description: Expected processing time in ISO 8601 duration
+  example: "P1DT12H"    # 1 day, 12 hours
+
+# Interval (period)
+billing_period:
+  type: string
+  format: period
+  description: Billing period as ISO 8601 interval
+  example: "2024-01-01/2024-03-31"
+```
+
+**Common duration patterns:**
+- `PT30M` — 30 minutes
+- `PT1H` — 1 hour
+- `P1D` — 1 day
+- `P7D` — 7 days
+- `P1M` — 1 month
+- `P1Y` — 1 year
+
+---
+
+## Country, Language, and Currency Standards [#170]
+
+**MUST** use international standards for locale-related properties:
+
+```yaml
+# Country — ISO 3166-1 alpha-2
+country_code:
+  type: string
+  format: iso-3166-1-alpha-2
+  description: Two-letter country code
+  example: "DE"
+  pattern: "^[A-Z]{2}$"
+
+# Language — BCP 47 / ISO 639-1
+language:
+  type: string
+  format: bcp47
+  description: Language tag
+  example: "en-US"
+
+# Currency — ISO 4217
+currency:
+  type: string
+  format: iso-4217
+  description: Three-letter currency code
+  example: "EUR"
+  pattern: "^[A-Z]{3}$"
+```
+
+---
 
 ## Content Negotiation [#244]
 
-SHOULD use content negotiation if clients may choose from different resource representations (e.g., different media types or languages).
+**SHOULD** use content negotiation via `Accept` and `Content-Type` headers when
+clients may choose different representations:
 
-## UUIDs [#144]
+```yaml
+# Multiple representations
+paths:
+  /reports/{report_id}:
+    get:
+      parameters:
+        - name: Accept
+          in: header
+          schema:
+            type: string
+            enum:
+              - application/json
+              - application/pdf
+              - text/csv
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Report"
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+```
 
-SHOULD only use UUIDs if necessary — prefer shorter, URL-friendly IDs when uniqueness can be guaranteed at the application level. When used, format as `uuid`.
+---
 
-## JSON Payload Rules
+## UUIDs — Only If Necessary [#144]
 
-### JSON as Default [#167]
+**SHOULD** prefer shorter, URL-friendly identifiers over UUIDs. Use UUIDs only
+when global uniqueness without coordination is required.
 
-MUST use JSON as the payload data interchange format for both request and response bodies.
+```yaml
+# Preferred — short, readable identifiers
+id:
+  type: string
+  description: URL-friendly order identifier
+  example: "ord-7kBx3"
 
-### Non-JSON Media Types [#168]
+# UUID — only when globally unique, uncoordinated IDs are required
+correlation_id:
+  type: string
+  format: uuid
+  description: Globally unique correlation identifier
+  example: "550e8400-e29b-41d4-a716-446655440000"
+```
 
-MAY pass non-JSON media types using data-specific standard formats (e.g., `image/png`, `application/pdf`) — but JSON remains the default.
+---
 
-### Standard Media Types [#172]
+## Non-JSON Media Types [#168]
 
-SHOULD use standard media types: `application/json` for resources, `application/problem+json` for errors, `application/merge-patch+json` for PATCH.
+**MAY** use non-JSON media types for binary or specialized content, with proper
+Content-Type headers:
 
-### Single Schema for Read/Write [#252]
+```yaml
+# File upload
+requestBody:
+  content:
+    multipart/form-data:
+      schema:
+        type: object
+        properties:
+          file:
+            type: string
+            format: binary
+          description:
+            type: string
 
-SHOULD design a single resource schema for both reading and writing. Use `readOnly` and `writeOnly` annotations to differentiate.
+# PDF download
+responses:
+  "200":
+    content:
+      application/pdf:
+        schema:
+          type: string
+          format: binary
+```
 
-### Unicode Awareness [#250]
+---
 
-SHOULD be aware that some services may not fully support JSON/unicode — document encoding expectations.
+## Standard Media Types [#172]
 
-## Null and Absence Semantics [#123]
+**SHOULD** use IANA-registered media types. Avoid inventing custom media types
+unless content negotiation specifically requires versioned types [#114].
 
-MUST use same semantics for null and absent properties — both mean "field has no value." Do not assign different meanings to null vs. omitted.
+Common types:
+- `application/json` — Default API payloads
+- `application/problem+json` — Error responses [#176]
+- `application/merge-patch+json` — PATCH requests
+- `application/pdf`, `image/png`, `text/csv` — Binary/text content
 
-## Boolean Properties [#122]
+---
 
-MUST NOT use null for boolean properties — boolean properties must always be `true` or `false`, never `null`. Mark them as `type: boolean` without nullable.
+## Null and Absent Semantics [#123]
 
-## Empty Arrays [#124]
+**MUST** treat null values and absent (missing) properties identically. An API
+must not assign different meaning to a property being `null` versus being
+omitted from the payload.
 
-SHOULD NOT use null for empty arrays — return `[]` instead of `null` for empty collections.
+```yaml
+# These two payloads MUST be treated the same way:
+# { "nickname": null }
+# { }   (nickname absent)
 
-## Top-Level Objects [#110]
+# In the schema, nullable properties should be marked:
+nickname:
+  type: string
+  nullable: true   # OpenAPI 3.0
+  description: Optional display name (null and absent are equivalent)
 
-MUST always return JSON objects as top-level data structures — never return bare arrays at the top level. Wrap in an object:
+# In OpenAPI 3.1 (JSON Schema), use oneOf or type array:
+nickname:
+  oneOf:
+    - type: string
+    - type: "null"
+```
+
+---
+
+## No Null Booleans [#122]
+
+**MUST NOT** use null for boolean properties. If a third state is needed, use
+a tri-state enum instead:
+
+```yaml
+# Wrong — nullable boolean
+is_verified:
+  type: boolean
+  nullable: true    # What does null mean? Unknown? Not applicable?
+
+# Correct — tri-state enum
+verification_status:
+  type: string
+  enum:
+    - VERIFIED
+    - NOT_VERIFIED
+    - UNKNOWN
+  description: |
+    VERIFIED — identity has been confirmed
+    NOT_VERIFIED — verification attempted but failed
+    UNKNOWN — verification has not been attempted
+```
+
+---
+
+## No Null Empty Arrays [#124]
+
+**SHOULD NOT** use null for empty arrays. Represent empty collections as `[]`
+to simplify client-side handling:
 
 ```yaml
 # Correct
+items:
+  type: array
+  items:
+    $ref: "#/components/schemas/OrderItem"
+  default: []
+  description: Order line items. Empty array if no items.
+
+# Wrong — clients must handle both null and []
+# { "items": null }   ← avoid this
+# { "items": [] }     ← use this instead
+```
+
+---
+
+## Maps via additionalProperties [#216]
+
+**SHOULD** define dictionary/map types using `additionalProperties`:
+
+```yaml
+# Map of locale to translated text
+translations:
+  type: object
+  description: Translations keyed by BCP 47 language tag
+  additionalProperties:
+    type: string
+  example:
+    en: "Shopping Cart"
+    de: "Warenkorb"
+    fr: "Panier"
+
+# Map with structured values
+inventory_by_warehouse:
+  type: object
+  additionalProperties:
+    type: object
+    properties:
+      quantity:
+        type: integer
+        format: int32
+      last_updated_at:
+        type: string
+        format: date-time
+```
+
+---
+
+## Open-Ended Enums via `examples` [#112]
+
+**SHOULD** use the `examples` keyword instead of closed `enum` for values that
+may grow over time. This signals to clients that they must handle unknown values
+gracefully (tolerant reader pattern [#108]).
+
+> **Historic note:** Prior to October 2025, the Zalando guidelines recommended
+> `x-extensible-enum`. The current guideline uses the standard `examples` keyword.
+
+```yaml
+# Open-ended — new values can be added without breaking clients
+OrderStatus:
+  type: string
+  examples:
+    - ORDER_PLACED
+    - PAYMENT_PENDING
+    - PAYMENT_CONFIRMED
+    - SHIPPED
+    - DELIVERED
+    - CANCELLED
+  description: |
+    Order lifecycle status. Clients MUST handle unknown values
+    gracefully as new statuses may be added.
+
+# Fixed — only use enum when the set is truly closed
+DayOfWeek:
+  type: string
+  enum:
+    - MONDAY
+    - TUESDAY
+    - WEDNESDAY
+    - THURSDAY
+    - FRIDAY
+    - SATURDAY
+    - SUNDAY
+```
+
+---
+
+## Single Resource Schema [#252]
+
+**SHOULD** design a single schema per resource for both read and write
+operations. Use `readOnly` and `writeOnly` markers for asymmetry:
+
+```yaml
+Order:
+  type: object
+  required:
+    - customer_id
+    - items
+  properties:
+    id:
+      type: string
+      readOnly: true          # only in responses
+      description: Server-assigned order identifier
+    customer_id:
+      type: string
+      description: Customer placing the order
+    items:
+      type: array
+      items:
+        $ref: "#/components/schemas/OrderItem"
+    created_at:
+      type: string
+      format: date-time
+      readOnly: true          # only in responses
+    password:
+      type: string
+      writeOnly: true         # only in requests (if applicable)
+```
+
+---
+
+## Unicode Awareness [#250]
+
+**SHOULD** be aware of services that may not fully support JSON/Unicode. When
+relevant, document encoding requirements and constraints for string properties.
+
+---
+
+## Top-Level JSON Objects [#110]
+
+**MUST** always return JSON objects as the top-level data structure. Never return
+a bare array or primitive as the top-level response:
+
+```yaml
+# Correct — object wrapper enables future extension
 OrderList:
   type: object
   properties:
     items:
       type: array
       items:
-        $ref: '#/components/schemas/Order'
+        $ref: "#/components/schemas/Order"
+    cursor:
+      type: string
 
-# Wrong — bare array
-# type: array
-# items:
-#   $ref: '#/components/schemas/Order'
+# Wrong — bare array prevents adding metadata later
+# Response: [{"id": "1"}, {"id": "2"}]
 ```
 
-## Maps [#216]
+This enables backward-compatible extension by adding new top-level fields
+without breaking existing clients.
 
-SHOULD define maps using `additionalProperties`:
+---
 
-```yaml
-Labels:
-  type: object
-  additionalProperties:
-    type: string
-  example:
-    environment: production
-    team: checkout
-```
+## Common Money Object [#173]
 
-## Common Field Names [#174]
-
-MUST use the standard common field names with their defined semantics:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | `string` | Unique resource identifier |
-| `created_at` | `string(date-time)` | Creation timestamp |
-| `modified_at` | `string(date-time)` | Last modification timestamp |
-| `type` | `string` | Resource type discriminator |
-| `etag` | `string` | Entity tag for optimistic locking |
-
-## Money Object [#173]
-
-MUST use the common Money object for all monetary values. Schema from Zalando `models/money-1.0.0.yaml`:
+**MUST** use the standard Money object for all monetary values:
 
 ```yaml
 Money:
   type: object
+  description: |
+    Standard money representation following ISO 4217.
+    Amount uses decimal format to avoid floating-point errors.
   required:
     - amount
     - currency
@@ -150,94 +534,95 @@ Money:
       type: number
       format: decimal
       description: >
-        The amount describes unit and subunit of the currency in a single value,
-        where the integer part (digits before the decimal point) is for the
-        major unit and fractional part (digits after the decimal point) is for
-        the minor unit.
-      example: 99.95
+        Monetary amount as decimal. The number of decimal places
+        must match the currency's minor unit (e.g., 2 for EUR/USD,
+        0 for JPY).
+      example: 29.99
     currency:
       type: string
       format: iso-4217
-      description: 3 letter currency code as defined by ISO-4217
-      example: EUR
+      description: ISO 4217 three-letter currency code
+      pattern: "^[A-Z]{3}$"
+      example: "EUR"
 ```
 
-## Address Object [#249]
+**Usage in schemas:**
 
-MUST use the common address fields. Minimal address schema:
+```yaml
+Order:
+  type: object
+  properties:
+    total_price:
+      $ref: "#/components/schemas/Money"
+    shipping_cost:
+      $ref: "#/components/schemas/Money"
+    discount_amount:
+      $ref: "#/components/schemas/Money"
+```
+
+**Important:** Always use `decimal` format for monetary amounts, never `float`
+or `double`, to prevent rounding errors [#171].
+
+---
+
+## Common Address Fields [#249]
+
+**MUST** use the standardized address schema fields:
 
 ```yaml
 Address:
   type: object
+  description: Standard postal address representation
   properties:
-    address_line_1:
+    street_address:
       type: string
-      description: Street address, P.O. box, company name
-    address_line_2:
+      description: Street name and house number
+      example: "Mollstr. 1"
+    additional_address_info:
       type: string
-      description: Apartment, suite, unit, building, floor
+      description: Additional address line (apartment, suite, etc.)
+      example: "Apt 4B"
     city:
       type: string
+      description: City or locality name
+      example: "Berlin"
     state:
       type: string
-      description: State, province, region
+      description: State, province, or region
+      example: "Berlin"
     zip_code:
       type: string
-    country:
+      description: Postal or ZIP code
+      example: "10178"
+    country_code:
       type: string
-      format: iso-3166-alpha-2
+      format: iso-3166-1-alpha-2
       description: ISO 3166-1 alpha-2 country code
-      example: DE
+      example: "DE"
+      pattern: "^[A-Z]{2}$"
+  required:
+    - street_address
+    - city
+    - zip_code
+    - country_code
 ```
 
-## Problem Object [#176]
+---
 
-MUST use RFC 9457 Problem Detail for all error responses. Schema from Zalando `models/problem-1.0.1.yaml`:
+## Format Selection Quick Reference
 
-```yaml
-Problem:
-  type: object
-  properties:
-    type:
-      type: string
-      format: uri-reference
-      description: >
-        A URI reference that uniquely identifies the problem type only in the
-        context of the provided API. Opposed to the specification in RFC-9457,
-        it is neither recommended to be dereferenceable and point to a
-        human-readable documentation nor globally unique for the problem type.
-      default: 'about:blank'
-      example: '/some/uri-reference'
-    title:
-      type: string
-      description: >
-        A short summary of the problem type. Written in English and readable
-        for engineers, usually not suited for non technical stakeholders and
-        not localized.
-      example: some title for the error situation
-    status:
-      type: integer
-      format: int32
-      description: >
-        The HTTP status code generated by the origin server for this occurrence
-        of the problem.
-      minimum: 100
-      maximum: 600
-      exclusiveMaximum: true
-    detail:
-      type: string
-      description: >
-        A human readable explanation specific to this occurrence of the
-        problem that is helpful to locate the problem and give advice on how
-        to proceed. Written in English and readable for engineers, usually not
-        suited for non technical stakeholders and not localized.
-      example: some description for the error situation
-    instance:
-      type: string
-      format: uri-reference
-      description: >
-        A URI reference that identifies the specific occurrence of the problem,
-        e.g. by adding a fragment identifier or sub-path to the problem type.
-        May be used to locate the root of this problem in the source code.
-      example: '/some/uri-reference#specific-occurrence-context'
-```
+| Data Type          | `type`    | `format`    | Rule  |
+|--------------------|-----------|-------------|-------|
+| Timestamp          | `string`  | `date-time` | [#169]|
+| Calendar date      | `string`  | `date`      | [#255]|
+| Duration           | `string`  | `duration`  | [#127]|
+| Email              | `string`  | `email`     | [#238]|
+| URI                | `string`  | `uri`       | [#238]|
+| UUID               | `string`  | `uuid`      | [#144]|
+| Country            | `string`  | `iso-3166`  | [#170]|
+| Currency code      | `string`  | `iso-4217`  | [#170]|
+| Language           | `string`  | `bcp47`     | [#170]|
+| Monetary amount    | `number`  | `decimal`   | [#171]|
+| Count / quantity   | `integer` | `int32`     | [#171]|
+| Large identifier   | `integer` | `int64`     | [#171]|
+| Measurement        | `number`  | `double`    | [#171]|

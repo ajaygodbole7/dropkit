@@ -1,121 +1,249 @@
 # Compatibility and Versioning
 
-> Zalando RESTful API Guidelines — compatibility and versioning reference.
-> Source: https://opensource.zalando.com/restful-api-guidelines/ (CC-BY-4.0, Zalando SE)
+> Derived from the [Zalando RESTful API Guidelines](https://opensource.zalando.com/restful-api-guidelines/) (CC-BY-4.0, Zalando SE).
 
-## No Breaking Changes [#106]
+These rules govern how APIs evolve without breaking existing consumers. Compatibility
+is the single most important long-term quality of a public API.
 
-MUST NOT break backward compatibility of published APIs. Breaking changes include:
+---
 
-- Removing or renaming a field, endpoint, or enum value
-- Changing a field's type or format
-- Adding a new required field to request bodies
-- Changing the semantics of an existing field
-- Restricting previously allowed values
-- Changing the response status code for a given scenario
+## [#106] MUST not break backward compatibility
 
-## Compatible Extensions [#107]
+Every change to a published API MUST be backward compatible. The following changes
+are **breaking** and therefore forbidden without a new major version:
 
-SHOULD prefer compatible extensions:
+| Category | Breaking change examples |
+|---|---|
+| **Endpoints** | Removing or renaming a path; changing the HTTP method |
+| **Request parameters** | Removing a parameter; making an optional parameter required; renaming a parameter; changing a parameter's type or format |
+| **Request body** | Adding a new required property; removing or renaming an existing property; changing a property's type, format, or constraints (e.g., tightening `maxLength`) |
+| **Response body** | Removing or renaming a property; changing a property's type or format; changing the structure of a response object |
+| **Status codes** | Removing a documented success or error status code; changing the semantics of an existing code |
+| **Headers** | Removing a required response header; changing header semantics |
+| **Authentication** | Removing or restricting OAuth scopes; changing auth schemes |
+| **Enumerations** | Removing an enum value from a closed enum (see [#112] for open enums) |
 
-- Adding optional fields to response bodies
-- Adding new endpoints
-- Adding new optional query parameters
-- Adding new enum values (if using `x-extensible-enum`)
-- Adding new optional headers
+**Safe (non-breaking) changes:** adding optional request parameters, adding response
+properties, adding new endpoints, adding new HTTP methods to existing endpoints,
+adding new enum values to open enums.
 
-## Conservative Design [#109]
+---
 
-SHOULD design APIs conservatively — be strict in what you send, tolerant in what you accept (Postel's Law applied to APIs).
+## [#107] SHOULD prefer compatible extensions
 
-## Tolerant Reader [#108]
+When evolving an API, SHOULD prefer additive, compatible changes over breaking ones:
 
-MUST prepare clients to accept compatible API extensions:
+- **Add** new optional request/query parameters with sensible defaults
+- **Add** new properties to response objects
+- **Add** new endpoints or resources
+- **Add** new enum values to open-ended enumerations ([#112])
+- **Support** new media types alongside existing ones
 
-- Clients MUST ignore unknown fields in responses
-- Clients MUST NOT depend on the order of fields
-- Clients MUST be prepared for new enum values
+Design every change so that existing clients continue to work without modification.
+When a breaking change is truly unavoidable, follow a deprecation-then-removal
+lifecycle and coordinate with known consumers.
 
-## Open for Extension [#111]
+---
 
-MUST treat OpenAPI specification as open for extension by default — new properties may appear in responses at any time. Clients must handle this gracefully.
+## [#108] MUST prepare clients to accept compatible API extensions
 
-## Extensible Enums [#112]
+Clients (consumers) MUST implement the **tolerant reader** pattern:
 
-SHOULD use open-ended list of values for enums that are expected to grow:
+- **Ignore** unknown properties in JSON response bodies — never fail on unexpected fields
+- **Ignore** unknown enum values (treat as an unrecognized but valid state)
+- **Ignore** new optional response headers
+- **Do not** depend on the ordering of JSON properties
+- **Do not** depend on the exact set of HTTP status codes beyond what is documented
+
+This rule is the consumer-side counterpart to [#107]. Without tolerant readers,
+even compatible extensions become de-facto breaking changes.
+
+---
+
+## [#109] SHOULD design APIs conservatively
+
+Apply **Postel's Law** (the robustness principle):
+
+> *Be conservative in what you send, be liberal in what you accept.*
+
+- Send only well-defined, documented fields in responses — no leaking of internal state
+- Accept unknown fields in request bodies gracefully (see [#111])
+- Validate inputs, but do not reject requests solely because they contain extra properties
+
+---
+
+## [#110] MUST always return JSON objects as top-level data structures
+
+Every JSON response body MUST have an **object** (`{}`) as the root — never a bare
+array, string, number, or `null`.
 
 ```yaml
-status:
+# Correct — array wrapped in an object
+responses:
+  '200':
+    content:
+      application/json:
+        schema:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/Order'
+
+# Wrong — bare array at root
+responses:
+  '200':
+    content:
+      application/json:
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/Order'
+```
+
+**Rationale:** Top-level objects allow adding new properties (e.g., `_links`,
+`cursor`, `total_count`) without breaking the response shape, and they prevent
+certain classes of JSON-based security vulnerabilities.
+
+---
+
+## [#111] MUST treat OpenAPI specification as open for extension by default
+
+API schemas MUST allow additional, undocumented properties unless there is a
+compelling reason to forbid them. In OpenAPI 3.x terms:
+
+- Do **not** set `additionalProperties: false` on object schemas by default
+- Consumers MUST tolerate unexpected properties ([#108])
+- Providers MAY add new properties to response objects at any time ([#107])
+
+Explicitly restricting `additionalProperties` is only appropriate for closed
+domain objects where the property set is genuinely fixed (rare).
+
+---
+
+## [#112] SHOULD use open-ended list of values (via `examples`) for enumerations
+
+For enumerations that may grow over time, SHOULD use the `examples` keyword
+instead of a closed `enum`:
+
+> **Historic note:** Prior to October 2025, the Zalando guidelines recommended
+> `x-extensible-enum`. The current guideline uses the standard `examples` keyword.
+
+```yaml
+# Open enum — new values can be added without breaking clients
+order_status:
   type: string
-  x-extensible-enum:
-    - OPEN
-    - CLOSED
-    - CANCELLED
-  description: >
-    Order status. This is an extensible enum — new values may be added
-    in the future. Clients must handle unknown values gracefully.
+  examples:
+    - placed
+    - shipped
+    - delivered
+    - returned
+  description: |
+    Current status of the order.
+    Clients MUST accept unknown values gracefully.
+
+# Closed enum — only for truly fixed value sets (e.g., ISO country codes)
+currency:
+  type: string
+  enum:
+    - EUR
+    - USD
+    - GBP
 ```
 
-Use `x-extensible-enum` instead of `enum` for values that may evolve. Reserve `enum` for truly fixed sets (e.g., HTTP methods, boolean-like values).
+**Key contract:** When an enum is open (uses `examples` instead of `enum`),
+consumers MUST handle unknown values without failing ([#108]). Providers MAY add
+new values at any time without a version bump.
 
-## Avoid Versioning [#113]
+---
 
-SHOULD avoid versioning — use compatible extensions instead. Only version when a breaking change is truly unavoidable.
+## [#113] SHOULD avoid versioning
 
-## Media Type Versioning [#114]
+Versioning is a **last resort**. APIs SHOULD evolve through compatible extensions
+([#107]) and tolerant readers ([#108]) instead of introducing new versions:
 
-MUST use media type versioning if versioning is necessary:
+- Versioning multiplies maintenance burden — every version needs support, docs, tests
+- Consumers must migrate, which creates coordination overhead
+- Most "breaking" changes can be redesigned as compatible extensions
+
+Only version when a fundamental, irreconcilable incompatibility is unavoidable.
+
+---
+
+## [#114] MUST use media type versioning
+
+When versioning is unavoidable, MUST use **media type versioning** via the
+`Content-Type` / `Accept` headers:
 
 ```
-Content-Type: application/vnd.example.order+json;version=2
-Accept: application/vnd.example.order+json;version=2
+Content-Type: application/vnd.zalando.order+json;v=2
+Accept: application/vnd.zalando.order+json;v=2
 ```
 
-## No URL Versioning [#115]
+This keeps the URL space clean and makes version negotiation explicit in the HTTP
+content negotiation layer.
 
-MUST NOT use URL versioning — never put `/v1/`, `/v2/` in URLs:
+---
+
+## [#115] MUST not use URL versioning
+
+MUST NOT include version numbers in URL paths:
 
 ```
 # Wrong
-GET /v1/orders
-GET /v2/orders
+GET /v1/orders/123
+GET /v2/orders/123
 
-# Correct — use content negotiation
-GET /orders
-Accept: application/vnd.example.order+json;version=2
+# Correct — version in media type, not URL
+GET /orders/123
+Accept: application/vnd.zalando.order+json;v=2
 ```
 
-## Deprecation [#187][#185][#186][#188][#189][#190][#191]
+URL versioning pollutes the resource namespace, breaks bookmarks, and conflates
+resource identity with representation format.
 
-### Reflect in Specification [#187]
+---
 
-MUST reflect deprecation in API specifications using the `deprecated: true` flag on operations and schemas.
+## [#116] MUST use semantic versioning
 
-### Client Approval Required [#185]
+The `info.version` field in the OpenAPI specification MUST follow **semantic
+versioning** (MAJOR.MINOR.PATCH):
 
-MUST obtain approval of clients before API shut down — never remove an API without coordinating with consumers.
+| Component | Increment when... |
+|---|---|
+| **MAJOR** | Incompatible / breaking changes (ideally never — see [#113]) |
+| **MINOR** | Backward-compatible new functionality (new endpoints, optional fields) |
+| **PATCH** | Backward-compatible bug fixes (documentation, typo corrections) |
 
-### External Partner Consent [#186]
-
-MUST collect external partner consent on deprecation time span — agree on sunset timeline with all external consumers.
-
-### Monitor Deprecated Usage [#188]
-
-MUST monitor usage of deprecated API scheduled for sunset — track call volume to ensure consumers are migrating.
-
-### Deprecation Headers [#189]
-
-SHOULD add `Deprecation` and `Sunset` headers to responses:
-
-```
-Deprecation: true
-Sunset: Sat, 01 Mar 2025 00:00:00 GMT
+```yaml
+openapi: '3.1.0'
+info:
+  title: Order Service API
+  version: '1.3.2'   # MAJOR.MINOR.PATCH
 ```
 
-### Monitor Headers [#190]
+Start at `1.0.0` for the initial release. Pre-release APIs MAY use `0.x.y` to
+signal instability.
 
-SHOULD add monitoring for `Deprecation` and `Sunset` headers — clients should monitor these headers and alert on upcoming sunsets.
+---
 
-### No New Usage [#191]
+## Quick-reference decision tree
 
-MUST NOT start using deprecated APIs — if an API is deprecated, do not build new integrations against it.
+```
+Need to change the API?
+  |
+  +-- Can it be done as a compatible extension? [#107]
+  |     YES --> Add it. Bump MINOR version. [#116]
+  |
+  +-- NO, it is a breaking change [#106]
+        |
+        +-- Can the design be reworked to avoid the break?
+        |     YES --> Rework. [#113]
+        |
+        +-- NO, a version bump is truly required
+              |
+              Use media type versioning [#114]
+              Never URL versioning [#115]
+              Bump MAJOR version [#116]
+```

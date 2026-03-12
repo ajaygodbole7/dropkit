@@ -45,12 +45,12 @@ Follow these phases in order. Do not skip ahead.
 
 ### Phase 3 -- Design Representations
 
-1. **JSON only.** Request and response bodies MUST be JSON [#167] with top-level objects (no bare arrays) [#110].
-2. **Property naming.** snake*case [#118], boolean names without `is*`/`has\_`prefix, no null booleans [#122]. Pluralize array names [#120]. Use`\_at`suffix for date-time,`\_date` for date-only [#235]. Follow common field names [#174].
+1. **JSON payloads.** Request and response bodies MUST be JSON [#167] with top-level objects (no bare arrays) [#110]. JSON-derived media types are permitted: `application/merge-patch+json` for PATCH [#148], `application/problem+json` for errors [#176].
+2. **Property naming.** `snake_case` [#118], no null booleans [#122]. Pluralize array names [#120]. Use `_at` suffix for date-time, `_date` for date-only [#235]. Follow common field names [#174].
 3. **Data formats.** Use standard `format` values [#238] and explicit number formats (`int32`, `int64`, `decimal`) [#171]. ISO 8601 for date-time [#169]. ISO 3166/639/4217 for country/language/currency [#170]. See [references/data-formats-and-common-objects.md](./references/data-formats-and-common-objects.md).
 4. **Null handling.** Define null semantics clearly [#123]. Never return null for booleans [#122] or empty arrays [#124].
 5. **Reusable objects.** Use the standard Money [#173] and Address [#249] objects from `#/components/schemas/`. Use a single schema for read and write where possible [#252].
-6. **Enumerations.** Use UPPER_SNAKE_CASE enum values [#240]. Prefer `x-extensible-enum` for evolvable value sets [#112].
+6. **Enumerations.** Use UPPER_SNAKE_CASE enum values [#240]. For evolvable value sets, use `examples` keyword (not closed `enum`) to signal open-ended values [#112].
 
 ### Phase 4 -- Error Handling & Status Codes
 
@@ -106,7 +106,7 @@ Before finalizing the output, verify every item. A single failure means the spec
 
 ### Representations
 
-- [ ] All request/response bodies are `application/json` [#167]
+- [ ] All request/response bodies are JSON-based (`application/json`, `application/merge-patch+json`, or `application/problem+json`) [#167]
 - [ ] All top-level responses are objects (no bare arrays) [#110]
 - [ ] Properties are snake_case [#118]
 - [ ] Boolean properties are non-nullable [#122]
@@ -132,7 +132,7 @@ Before finalizing the output, verify every item. A single failure means the spec
 ### Compatibility
 
 - [ ] No breaking changes to existing published fields [#106]
-- [ ] Extensible enums use `x-extensible-enum` [#112]
+- [ ] Extensible enums use `examples` keyword (not closed `enum`) [#112]
 - [ ] No URL versioning [#115]
 
 ## Output Format
@@ -153,7 +153,19 @@ See `references/golden-example.yaml` for a complete validated example.
 
 ## Reference Files
 
-Load these as needed for full rule details, examples, and rationale:
+Load selectively based on what your API needs:
+
+| Your API has...              | Load this reference                          |
+| ---------------------------- | -------------------------------------------- |
+| Multiple endpoints           | naming-conventions.md                        |
+| Non-trivial CRUD             | http-methods-and-status-codes.md             |
+| Money, dates, or enums       | data-formats-and-common-objects.md           |
+| List endpoints               | pagination-and-filtering.md                  |
+| Published consumers          | compatibility-and-versioning.md              |
+| Caching or embedding needs   | hypermedia-and-performance.md                |
+| Async events or webhooks     | events.md                                    |
+
+Full reference index:
 
 | Reference                                                                            | Covers                                                    |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |

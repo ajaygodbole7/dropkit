@@ -53,7 +53,7 @@ paths:
           in: query                                     # [#130] MUST use snake_case for query params
           schema:
             type: string
-            x-extensible-enum:                          # [#112] SHOULD use x-extensible-enum
+            examples:                          # [#112] SHOULD use examples for open-ended enums
               - PLACED
               - CONFIRMED
               - SHIPPED
@@ -204,15 +204,29 @@ paths:
         "429":
           $ref: '#/components/responses/TooManyRequests'
 
-    delete:
+  # [#138] Model cancellation as a sub-resource, not DELETE
+  # (the order still exists in CANCELLED state — DELETE implies removal [#148])
+  /orders/{order-id}/cancellation:
+    parameters:
+      - name: order-id
+        in: path
+        required: true
+        schema:
+          type: string
+
+    post:
       summary: Cancel an order
       operationId: cancelOrder
       tags: [Orders]
       security:
         - oauth2: [order-management.orders.write]
       responses:
-        "204":                                             # [#149] DELETE returns 204 No Content
+        "201":                                             # [#220] Creates a cancellation sub-resource
           description: Order cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
         "401":
           $ref: '#/components/responses/Unauthorized'
         "403":
@@ -305,7 +319,6 @@ components:
         - id
         - status
         - total
-        - currency
         - items
         - created_at
       properties:
@@ -316,7 +329,7 @@ components:
           readOnly: true                                   # [#252] Single schema for read/write
         status:
           type: string
-          x-extensible-enum:                               # [#112] Extensible enum
+          examples:                               # [#112] Open-ended enum via examples
             - PLACED
             - CONFIRMED
             - SHIPPED
@@ -326,11 +339,6 @@ components:
           example: PLACED
         total:                                             # [#173] MUST use common money object
           $ref: '#/components/schemas/Money'
-        currency:
-          type: string
-          format: iso-4217                                 # [#170] ISO 4217 for currency
-          description: Order currency
-          example: EUR
         customer_id:
           type: string
           description: Reference to the customer who placed the order
@@ -343,7 +351,7 @@ components:
         note:
           type: string
           description: Optional customer note
-        is_gift:                                           # [#122] Boolean non-nullable
+        gift:                                           # [#122] Boolean — non-nullable, no is_/has_ prefix needed
           type: boolean
           default: false
         created_at:                                        # [#169][#235] ISO 8601, _at suffix
@@ -364,7 +372,6 @@ components:
       required:
         - items
         - shipping_address
-        - currency
       properties:
         items:
           type: array
@@ -373,13 +380,9 @@ components:
           minItems: 1
         shipping_address:
           $ref: '#/components/schemas/Address'
-        currency:
-          type: string
-          format: iso-4217
-          example: EUR
         note:
           type: string
-        is_gift:
+        gift:
           type: boolean
           default: false
 
@@ -390,7 +393,7 @@ components:
           $ref: '#/components/schemas/Address'
         note:
           type: string
-        is_gift:
+        gift:
           type: boolean
 
     OrderItem:
@@ -440,13 +443,18 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Order'
-        cursors:
+        cursor:                                            # Matches pagination-and-filtering.md pattern
           type: object
           properties:
-            before:
+            self:
               type: string
-            after:
+              description: Cursor pointing to the start of this page
+            next:
               type: string
+              description: Cursor for the next page (absent if last page)
+            prev:
+              type: string
+              description: Cursor for the previous page (absent if first page)
         has_more:                                           # [#254] Prefer has_more over total count
           type: boolean
         _links:                                            # [#161][#165] Pagination links
@@ -461,12 +469,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OrderItem'
-        cursors:
+        cursor:
           type: object
           properties:
-            before:
+            self:
               type: string
-            after:
+            next:
+              type: string
+            prev:
               type: string
         has_more:
           type: boolean
@@ -541,8 +551,7 @@ components:
           format: int32
           description: HTTP status code
           minimum: 100
-          maximum: 600
-          exclusiveMaximum: true
+          exclusiveMaximum: 600
         detail:
           type: string
           description: Human-readable explanation of this occurrence
@@ -567,7 +576,7 @@ components:
         cancel:
           type: string
           format: uri
-          example: https://api.example.com/orders/abc123
+          example: https://api.example.com/orders/abc123/cancellation
 
     PaginationLinks:                                       # [#161] Pagination links
       type: object
@@ -669,6 +678,26 @@ components:
 
     TooManyRequests:                                       # [#153] Rate limit with Retry-After
       description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            format: int32
+          description: Seconds to wait before retrying
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    InternalServerError:                                   # 5xx — acknowledge that servers fail
+      description: Unexpected server error
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+
+    ServiceUnavailable:
+      description: Service temporarily unavailable
       headers:
         Retry-After:
           schema:
